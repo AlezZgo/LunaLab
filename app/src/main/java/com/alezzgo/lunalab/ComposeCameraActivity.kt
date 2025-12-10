@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import com.alezzgo.lunalab.camera.CameraViewModel
-import com.alezzgo.lunalab.core.camera.CameraXPreview
 import com.alezzgo.lunalab.ui.theme.LunaLabTheme
 
 class ComposeCameraActivity : ComponentActivity() {

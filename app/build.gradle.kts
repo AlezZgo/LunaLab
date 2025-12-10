@@ -51,7 +51,8 @@ dependencies {
     implementation(libs.androidx.material3)
     
     implementation(project(":core"))
-    
+    implementation(libs.androidx.camera.core)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

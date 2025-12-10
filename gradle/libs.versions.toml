@@ -35,6 +35,7 @@ uiTextGoogleFonts = "1.8.3"
 mlkitBarcode = "17.3.0"
 zxing = "3.5.3"
 playCodeScanner = "16.1.0"
+cameraCore = "1.5.2"
 
 
 [libraries]
@@ -112,6 +113,7 @@ androidx-ui-text-google-fonts = { group = "androidx.compose.ui", name = "ui-text
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 play-services-code-scanner = { group = "com.google.android.gms", name = "play-services-code-scanner", version.ref = "playCodeScanner" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
