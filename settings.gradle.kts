@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "LunaLab"
 include(":app")
+include(":core")
  

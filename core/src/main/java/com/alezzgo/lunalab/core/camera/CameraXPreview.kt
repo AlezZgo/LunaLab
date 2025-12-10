@@ -1,4 +1,4 @@
-package com.alezzgo.lunalab.camera
+package com.alezzgo.lunalab.core.camera
 
 import androidx.camera.core.CameraSelector
 import androidx.compose.runtime.Composable

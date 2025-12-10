@@ -1,4 +1,4 @@
-package com.alezzgo.lunalab.camera
+package com.alezzgo.lunalab.core.camera
 
 sealed interface CameraCommand {
     data object Start : CameraCommand
