@@ -69,7 +69,7 @@ class CameraXView @JvmOverloads constructor(
 
     // Опционально: попросить у камеры более высокий FPS (будет применено к preview + analysis)
     // По умолчанию просим "нормальный high-FPS" диапазон, который чаще поддерживается чем 60..60.
-    private var targetFpsRange: Range<Int>? = Range(30, 60)
+    private var targetFpsRange: Range<Int>? = Range(60, 60)
 
     // bindCommands() могут вызвать до attach — сохраняем ссылку и подпишемся позже.
     private var pendingCommands: StateFlow<CameraCommand>? = null
