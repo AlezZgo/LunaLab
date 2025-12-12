@@ -1,6 +1,7 @@
 package com.alezzgo.lunalab
 
 import android.os.Bundle
+import android.widget.Toast
 import android.widget.Button
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
@@ -38,6 +39,14 @@ class XmlCameraActivity : ComponentActivity() {
                     val isRecording = state is VideoRecordingState.Recording
                     btnStart.isEnabled = !isRecording
                     btnStop.isEnabled = isRecording
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.uiEvents.collect { msg ->
+                    Toast.makeText(this@XmlCameraActivity, msg, Toast.LENGTH_SHORT).show()
                 }
             }
         }

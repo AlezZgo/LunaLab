@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -35,8 +38,18 @@ class ComposeCameraActivity : ComponentActivity() {
             LunaLabTheme {
                 val recordingState by viewModel.recordingState.collectAsState()
                 val isRecording = recordingState is VideoRecordingState.Recording
+                val snackbarHostState = SnackbarHostState()
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                LaunchedEffect(Unit) {
+                    viewModel.uiEvents.collect { msg ->
+                        snackbarHostState.showSnackbar(msg)
+                    }
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    snackbarHost = { SnackbarHost(snackbarHostState) }
+                ) { innerPadding ->
                     Box(
                         modifier = Modifier
                             .fillMaxSize()

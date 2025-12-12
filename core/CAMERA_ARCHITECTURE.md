@@ -25,10 +25,14 @@
 
 - **View-компонент**: `CameraXView : FrameLayout`
 - **Поток кадров**: `val frameFlow: SharedFlow<FrameData>`
+- **Видео запись (Flow-first)**:
+  - `val recordingState: StateFlow<VideoRecordingState>`
+  - `val recordingEvents: SharedFlow<VideoRecordingEvent>`
 - **Управление**:
   - `fun setLensFacing(facing: Int)` (используйте `CameraSelector.LENS_FACING_*`)
   - `fun setAutoStart(enabled: Boolean)`
   - `fun bindCommands(commands: StateFlow<CameraCommand>)`
+  - `fun bindRecordingCommands(commands: StateFlow<VideoRecordingCommand>)`
   - `fun startCamera(forceRebind: Boolean = false)`
   - `fun stopCamera()`
 
@@ -37,7 +41,31 @@
 - `CameraCommand.Start`
 - `CameraCommand.Stop`
 
+Команды/события записи: `core/src/main/java/com/alezzgo/lunalab/core/camera/VideoContract.kt`
+
+- `VideoRecordingCommand.Start` / `VideoRecordingCommand.Stop`
+- `VideoRecordingState.Idle` / `VideoRecordingState.Recording(outputUri)`
+- `VideoRecordingEvent.Started(outputUri)` / `Finalized(outputUri)` / `Error(outputUri?, error)`
+
 > `FrameData` считать **внутренним контрактом, который будет меняться**: в этой документации мы **не фиксируем** его формат и не описываем поля.
+
+---
+
+## Видео запись: как пользоваться API (кратко)
+
+### Поведение
+
+- Видео пишется **без звука**, в `mp4`, **самое низкое качество**.
+- Сохранение строго в **internal storage**:
+  - `context.filesDir/video/VID_ddMMyyyy_HHmmss.mp4`
+- Если `CameraXView` **detached** — запись **останавливается** автоматически.
+
+### Как подключить (flow-first)
+
+- **Управление**: создайте `StateFlow<VideoRecordingCommand>` и один раз вызовите:
+  - `cameraView.bindRecordingCommands(recordingCommands)`
+- **UI state** (disabled/enabled): читайте `cameraView.recordingState`
+- **Результат/ошибки**: слушайте `cameraView.recordingEvents` и берите `outputUri`
 
 ---
 
@@ -166,7 +194,7 @@ class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
 Ключевая идея: `CameraXView` — это обычный View, поэтому в Compose он живёт через `AndroidView`.  
 Дальше вы выбираете: **reactive** управление (StateFlow команд) или **autoStart**.
 
-### Compose (reactive управление + сбор кадров)
+### Compose (reactive управление + сбор кадров + запись видео)
 
 ```kotlin
 @Composable
@@ -174,17 +202,22 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     lensFacing: Int,
     commands: StateFlow<CameraCommand>,
+    recordingCommands: StateFlow<VideoRecordingCommand>,
     onFrame: (FrameData) -> Unit,
+    onRecordingEvent: (VideoRecordingEvent) -> Unit,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraRef = remember { arrayOfNulls<CameraXView>(1) }
 
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { ctx ->
             CameraXView(ctx).also { view ->
+                cameraRef[0] = view
                 view.setAutoStart(false)
                 view.setLensFacing(lensFacing)
                 view.bindCommands(commands)
+                view.bindRecordingCommands(recordingCommands)
             }
         },
         update = { view ->
@@ -196,7 +229,8 @@ fun CameraScreen(
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val cameraView = requireNotNull(cameraRef[0])
-            cameraView.frameFlow.collect(onFrame)
+            launch { cameraView.frameFlow.collect(onFrame) }
+            launch { cameraView.recordingEvents.collect(onRecordingEvent) }
         }
     }
 }

@@ -9,9 +9,11 @@ import com.alezzgo.lunalab.core.camera.VideoRecordingCommand
 import com.alezzgo.lunalab.core.camera.VideoRecordingEvent
 import com.alezzgo.lunalab.core.camera.VideoRecordingState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 class CameraViewModel : ViewModel() {
@@ -24,6 +26,9 @@ class CameraViewModel : ViewModel() {
 
     private val _recordingState = MutableStateFlow<VideoRecordingState>(VideoRecordingState.Idle)
     val recordingState = _recordingState.asStateFlow()
+
+    private val _uiEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val uiEvents = _uiEvents.asSharedFlow()
 
     fun start() {
         _command.value = CameraCommand.Start
@@ -59,9 +64,20 @@ class CameraViewModel : ViewModel() {
         viewModelScope.launch {
             recordingEvents.collect { event ->
                 when (event) {
-                    is VideoRecordingEvent.Started -> Log.d("CameraViewModel", "Recording started: ${event.outputUri}")
-                    is VideoRecordingEvent.Finalized -> Log.d("CameraViewModel", "Recording finalized: ${event.outputUri}")
-                    is VideoRecordingEvent.Error -> Log.e("CameraViewModel", "Recording error: ${event.outputUri}", event.error)
+                    is VideoRecordingEvent.Started -> {
+                        Log.d("CameraViewModel", "Recording started: ${event.outputUri}")
+                    }
+
+                    is VideoRecordingEvent.Finalized -> {
+                        Log.d("CameraViewModel", "Recording finalized: ${event.outputUri}")
+                        val name = event.outputUri.lastPathSegment ?: event.outputUri.toString()
+                        _uiEvents.tryEmit("Видео сохранено: $name")
+                    }
+
+                    is VideoRecordingEvent.Error -> {
+                        Log.e("CameraViewModel", "Recording error: ${event.outputUri}", event.error)
+                        _uiEvents.tryEmit("Ошибка записи видео")
+                    }
                 }
             }
         }
