@@ -2,6 +2,7 @@ package com.alezzgo.lunalab.core.camera
 
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
+import android.net.Uri
 import android.os.Process
 import android.view.Surface
 import android.util.AttributeSet
@@ -16,6 +17,13 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.findViewTreeLifecycleOwner
@@ -28,10 +36,16 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.io.File
 
 class CameraXView @JvmOverloads constructor(
     context: Context,
@@ -47,6 +61,12 @@ class CameraXView @JvmOverloads constructor(
     private val _frameFlow = MutableSharedFlow<FrameData>(extraBufferCapacity = 1)
     val frameFlow: SharedFlow<FrameData> = _frameFlow
 
+    private val _recordingState = MutableStateFlow<VideoRecordingState>(VideoRecordingState.Idle)
+    val recordingState = _recordingState.asStateFlow()
+
+    private val _recordingEvents = MutableSharedFlow<VideoRecordingEvent>(extraBufferCapacity = 1)
+    val recordingEvents: SharedFlow<VideoRecordingEvent> = _recordingEvents
+
     private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var analysisExecutor: ExecutorService? = null
@@ -56,6 +76,9 @@ class CameraXView @JvmOverloads constructor(
 
     private var previewUseCase: Preview? = null
     private var analysisUseCase: ImageAnalysis? = null
+    private var videoCaptureUseCase: VideoCapture<Recorder>? = null
+    private var recorder: Recorder? = null
+
     private var isBound = false
     private var boundLensFacing = -1
 
@@ -75,6 +98,13 @@ class CameraXView @JvmOverloads constructor(
     private var pendingCommands: StateFlow<CameraCommand>? = null
     private var commandJob: Job? = null
 
+    private var pendingRecordingCommands: StateFlow<VideoRecordingCommand>? = null
+    private var recordingCommandJob: Job? = null
+
+    private var activeRecording: Recording? = null
+    private var activeRecordingUri: Uri? = null
+    private var pendingStartRecording = false
+
     init {
         addView(previewView)
         // Прогреваем инициализацию CameraX как можно раньше — это реально ускоряет "первый старт".
@@ -86,11 +116,14 @@ class CameraXView @JvmOverloads constructor(
         ensureThreading()
         // Если bindCommands() вызывали до attach — начинаем собирать команды сейчас.
         pendingCommands?.let { bindCommands(it) }
+        pendingRecordingCommands?.let { bindRecordingCommands(it) }
         if (autoStart) startCamera()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // Если пишем видео — останавливаем запись при detach.
+        stopRecording()
         stopCamera()
         analysisExecutor?.shutdown()
         analysisExecutor = null
@@ -99,6 +132,8 @@ class CameraXView @JvmOverloads constructor(
         yuvBuffer = null
         previewUseCase = null
         analysisUseCase = null
+        videoCaptureUseCase = null
+        recorder = null
     }
 
     fun setLensFacing(facing: Int) {
@@ -120,6 +155,20 @@ class CameraXView @JvmOverloads constructor(
                 when (cmd) {
                     CameraCommand.Start -> startCamera()
                     CameraCommand.Stop -> stopCamera()
+                }
+            }
+        }
+    }
+
+    fun bindRecordingCommands(commands: StateFlow<VideoRecordingCommand>) {
+        pendingRecordingCommands = commands
+        val localScope = scope ?: return
+        recordingCommandJob?.cancel()
+        recordingCommandJob = localScope.launch {
+            commands.collect { cmd ->
+                when (cmd) {
+                    VideoRecordingCommand.Start -> requestStartRecording()
+                    VideoRecordingCommand.Stop -> stopRecording()
                 }
             }
         }
@@ -158,12 +207,15 @@ class CameraXView @JvmOverloads constructor(
                 .build()
                 .also { it.setAnalyzer(analysisExecutor!!, ::processFrame) }
 
+            val videoCapture = getOrCreateVideoCapture(rotation)
+
             previewUseCase = preview
             analysisUseCase = analysis
+            videoCaptureUseCase = videoCapture
 
             runCatching {
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, getSelector(), preview, analysis)
+                provider.bindToLifecycle(lifecycleOwner, getSelector(), preview, analysis, videoCapture)
             }.onFailure {
                 // Если девайс/камера не принимает наши request options (например FPS range),
                 // не падаем — просто оставляем камеру остановленной.
@@ -173,12 +225,27 @@ class CameraXView @JvmOverloads constructor(
 
             isBound = true
             boundLensFacing = desiredFacing
+
+            // Если запись запрашивали до того как камера успела забиндиться — стартуем сейчас.
+            if (pendingStartRecording) {
+                startRecordingNow()
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun stopCamera() {
+        // Остановка камеры должна также останавливать активную запись.
+        stopRecording()
         cameraProvider?.unbindAll()
         isBound = false
+    }
+
+    fun stopRecording() {
+        pendingStartRecording = false
+        activeRecording?.let { rec ->
+            runCatching { rec.stop() }
+            activeRecording = null
+        }
     }
 
     private fun getSelector(): CameraSelector {
@@ -189,6 +256,75 @@ class CameraXView @JvmOverloads constructor(
             cachedSelectorFacing = lensFacing
         }
         return cachedSelector!!
+    }
+
+    private fun requestStartRecording() {
+        if (activeRecording != null) return
+        pendingStartRecording = true
+        // Гарантируем, что камера забиндится (если autoStart выключен и камера ещё не стартовала).
+        startCamera()
+        // Если уже забиндились — стартуем запись синхронно (без ожидания listener).
+        if (isBound) startRecordingNow()
+    }
+
+    private fun startRecordingNow() {
+        if (activeRecording != null) return
+        val videoCapture = videoCaptureUseCase ?: return
+
+        pendingStartRecording = false
+
+        val outputFile = createVideoOutputFile()
+        val outputUri = Uri.fromFile(outputFile)
+        activeRecordingUri = outputUri
+
+        val outputOptions = FileOutputOptions.Builder(outputFile).build()
+        val mainExecutor = ContextCompat.getMainExecutor(context)
+
+        _recordingState.value = VideoRecordingState.Recording(outputUri)
+
+        activeRecording = videoCapture.output
+            .prepareRecording(context, outputOptions)
+            .start(mainExecutor) { event ->
+                when (event) {
+                    is VideoRecordEvent.Start -> {
+                        _recordingEvents.tryEmit(VideoRecordingEvent.Started(outputUri))
+                    }
+
+                    is VideoRecordEvent.Finalize -> {
+                        if (event.hasError()) {
+                            val t = event.cause
+                                ?: IllegalStateException("Video finalize error=${event.error}")
+                            _recordingEvents.tryEmit(VideoRecordingEvent.Error(outputUri, t))
+                        } else {
+                            _recordingEvents.tryEmit(VideoRecordingEvent.Finalized(outputUri))
+                        }
+
+                        activeRecording = null
+                        activeRecordingUri = null
+                        _recordingState.value = VideoRecordingState.Idle
+                    }
+
+                    else -> Unit
+                }
+            }
+    }
+
+    private fun getOrCreateVideoCapture(rotation: Int): VideoCapture<Recorder> {
+        val localRecorder = recorder ?: Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(Quality.LOWEST))
+            .build()
+            .also { recorder = it }
+
+        // В alpha API может быть either Builder() либо withOutput(). Используем withOutput и выставляем rotation.
+        return VideoCapture.withOutput(localRecorder).also { it.targetRotation = rotation }
+    }
+
+    private fun createVideoOutputFile(): File {
+        val dir = File(context.filesDir, "video").also { it.mkdirs() }
+        val ts = LocalDateTime.now().format(
+            DateTimeFormatter.ofPattern("ddMMyyyy_HHmmss", Locale.US)
+        )
+        return File(dir, "VID_${ts}.mp4")
     }
 
     private fun processFrame(imageProxy: ImageProxy) {
