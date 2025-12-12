@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.alezzgo.lunalab.camera.CameraViewModel
 import com.alezzgo.lunalab.core.camera.VideoRecordingState
+import com.alezzgo.lunalab.ui.CameraCircleOverlay
 import com.alezzgo.lunalab.ui.theme.LunaLabTheme
 
 class ComposeCameraActivity : ComponentActivity() {
@@ -65,6 +66,8 @@ class ComposeCameraActivity : ComponentActivity() {
                                 viewModel.observeRecording(state, events)
                             }
                         )
+
+                        CameraCircleOverlay(modifier = Modifier.fillMaxSize())
 
                         Row(
                             modifier = Modifier
