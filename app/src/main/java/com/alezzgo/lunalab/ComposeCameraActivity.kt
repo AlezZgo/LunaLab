@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -38,7 +39,7 @@ class ComposeCameraActivity : ComponentActivity() {
             LunaLabTheme {
                 val recordingState by viewModel.recordingState.collectAsState()
                 val isRecording = recordingState is VideoRecordingState.Recording
-                val snackbarHostState = SnackbarHostState()
+                val snackbarHostState = remember { SnackbarHostState() }
 
                 LaunchedEffect(Unit) {
                     viewModel.uiEvents.collect { msg ->
