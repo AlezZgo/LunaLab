@@ -69,6 +69,54 @@
 
 ---
 
+## Overlay (UI слой поверх превью камеры)
+
+Overlay — это отдельный слой **поверх** `CameraXView`: по центру круг (прозрачный “вырез”), вокруг заливка `scrim`, плюс обводка круга.
+
+Ключевой принцип везде один:
+
+- порядок слоёв: **камера → overlay → кнопки/контролы**
+
+### Compose
+
+Используйте `Box`, чтобы контролировать z-order:
+
+```kotlin
+Box(Modifier.fillMaxSize()) {
+    CameraXPreview(Modifier.fillMaxSize(), /* ... */)
+    CameraCircleOverlay(Modifier.fillMaxSize()) // overlay поверх камеры
+    // кнопки/контролы последними (самый верх)
+}
+```
+
+Реализация overlay лежит в `app/src/main/java/com/alezzgo/lunalab/ui/CameraCircleOverlay.kt`.
+
+### XML
+
+Используйте `FrameLayout` и добавляйте overlay View после `CameraXView`, а кнопки — последними:
+
+```xml
+<FrameLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.alezzgo.lunalab.core.camera.CameraXView
+        android:id="@+id/cameraView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.alezzgo.lunalab.ui.CameraCircleOverlayView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- кнопки/контролы -->
+</FrameLayout>
+```
+
+Реализация overlay View лежит в `app/src/main/java/com/alezzgo/lunalab/ui/CameraCircleOverlayView.kt`.
+
+---
+
 ## Инварианты (что важно для всех UI)
 
 - `CameraXView` должен жить в дереве View, где есть `LifecycleOwner`.
